@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::marker::Send;
 use tokio::sync::{mpsc, RwLock};
 
-struct WorldWrap(World);
+pub struct WorldWrap(World);
 
 impl WorldWrap {
     pub fn modify_state(
@@ -30,10 +30,10 @@ type Sender = mpsc::UnboundedSender<std::result::Result<warp::filters::ws::Messa
 type WorldAsync = Arc<RwLock<WorldWrap>>;
 type ResourcesAsync<'a> = Arc<RwLock<SyncResources<'a>>>;
 
-pub async fn client_connection<'a>(
+pub async fn client_connection(
     ws: WebSocket,
-    worldA: &'a WorldAsync,
-    resourcesA: &'a ResourcesAsync<'a>,
+    worldA: WorldAsync,
+    resourcesA: ResourcesAsync<'_>,
 ) {
     let (client_ws_sender, mut client_ws_rcv) = ws.split();
     let (client_sender, client_rcv) = mpsc::unbounded_channel();
@@ -63,18 +63,19 @@ pub async fn client_connection<'a>(
     println!("disconnected");
 }
 
-pub async fn ws_handler<'a>(
+pub async fn ws_handler(
     ws: warp::ws::Ws,
-    worldA: &'a WorldAsync,
-    resourcesA: &'a ResourcesAsync<'a>,
+    worldA: WorldAsync,
+    resourcesA: ResourcesAsync<'static>,
 ) -> WarpResult<impl Reply> {
     Ok (ws.on_upgrade(
         move |socket| client_connection(
             socket,
             worldA,
-            resourcesA
+            resourcesA,
         )
-    ))
+    )
+    )
 }
 
 fn with_state<T: Clone+Send>(state: T) -> impl Filter<Extract = (T,), Error = Infallible> + Clone {
@@ -92,8 +93,8 @@ async fn main() {
 
     let ws_route = warp::path("ws")
         .and(warp::ws())
-        .and(with_state(&worldA))
-        .and(with_state(&resourcesA))
+        .and(with_state(worldA))
+        .and(with_state(resourcesA))
         .and_then(ws_handler);
 
     warp::serve(ws_route).run(([127, 0, 0, 1], 8000)).await
